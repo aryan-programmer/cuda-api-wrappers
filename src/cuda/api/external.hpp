@@ -9,6 +9,8 @@
 #ifndef CUDA_API_WRAPPERS_EXTERNAL_HPP_
 #define CUDA_API_WRAPPERS_EXTERNAL_HPP_
 
+#if CUDA_VERSION >= 10000
+
 #include "memory.hpp"
 #include "unique_ptr.hpp"
 
@@ -202,5 +204,7 @@ inline mapped_region_t map(const resource_t& resource)
 } // namespace external
 } // namespace memory
 } // namespace cuda
+
+#endif // CUDA_VERSION >= 10000
 
 #endif // CUDA_API_WRAPPERS_EXTERNAL_HPP_

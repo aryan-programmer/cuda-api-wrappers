@@ -54,6 +54,13 @@
 #include "api/virtual_memory.hpp"
 #include "api/external.hpp"
 
+#if CUDA_VERSION >= 10000
+#include "api/graph/node.hpp"
+#include "api/graph/typed_node.hpp"
+#include "api/graph/template.hpp"
+#include "api/graph/instance.hpp"
+#endif // CUDA_VERSION >= 10000
+
 #include "api/multi_wrapper_impls/pointer.hpp"
 #include "api/multi_wrapper_impls/array.hpp"
 #include "api/multi_wrapper_impls/event.hpp"
@@ -66,6 +73,9 @@
 #include "api/multi_wrapper_impls/apriori_compiled_kernel.hpp"
 #include "api/multi_wrapper_impls/module.hpp"
 #include "api/multi_wrapper_impls/ipc.hpp"
+#if CUDA_VERSION >= 10000
+#include "api/multi_wrapper_impls/graph.hpp"
+#endif // CUDA_VERSION >= 10000
 
 #include "api/launch_config_builder.hpp"
 
