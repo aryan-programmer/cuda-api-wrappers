@@ -9,7 +9,7 @@
 
 #if CUDA_VERSION >= 10000
 
-#include <cuda/api/types.hpp>
+#include "../types.hpp"
 
 namespace cuda {
 

@@ -275,6 +275,98 @@ void cudaGraphsManual(
 	use(device, graph, graph_construction_mode);
 }
 
+void cudaGraphsManualWithBuilders(
+	const cuda::device_t& device,
+	span<float>  inputVec_h,
+	span<float>  inputVec_d,
+	span<double> outputVec_d,
+	span<double> result_d)
+{
+	const char* graph_construction_mode = "use of node builders and explicit edge insertions";
+	double result_h = 0.0;
+
+	using node_kind_t = cuda::graph::node::kind_t;
+	auto graph = cuda::graph::create();
+
+	// what about building via the graph object?
+	cuda::graph::node::builder_t builder;
+
+	// TODO: Consider having builder_t::memory_copy , builder_t::memory_set etc.
+	auto memcpy_node = builder.kind<node_kind_t::memory_copy>()
+		.source(inputVec_h)
+		.destination(inputVec_d)
+		// the following is not necessary - it is deduced
+		// .extent<float>(inputVec_h.size())
+		// No need to clear anything - that's taken care of by default
+		// .copy_params.clear_offsets();
+		// .copy_params.clear_rest();
+		// No need to set the context - we default to the current context!
+		// .context(cuda::context::current::get())
+		.build_within(graph);
+
+	auto memset_node = builder.kind<node_kind_t::memory_set>()
+		.region(inputVec_d)
+		.value<float>(0)
+		.build_within(graph);
+
+	auto wrapped_reduce_kernel = cuda::kernel::get(device, reduce);
+	auto reduce_node = [&]{
+		auto launch_config = cuda::launch_config_builder()
+			.grid_size(outputVec_d.size())
+			.block_size(THREADS_PER_BLOCK)
+			.build();
+
+		return builder.kind<node_kind_t::kernel_launch>()
+			.kernel(wrapped_reduce_kernel)
+			.launch_configuration(launch_config)
+			.arguments(inputVec_d.data(), outputVec_d.data(), inputVec_d.size(), outputVec_d.size())
+				// Also need to support add_argument called multiple times
+			.build_within(graph);
+	}();
+
+	graph.insert.edge(memcpy_node, reduce_node);
+	graph.insert.edge(memset_node, reduce_node);
+
+	auto memset_result_node = builder.kind<node_kind_t::memory_set>()
+		.region(result_d)
+		.value<float>(0)
+		.build_within(graph);
+
+	auto final_reduce_launch_config = cuda::launch_config_builder()
+		.grid_size(1)
+		.block_size(THREADS_PER_BLOCK)
+		.build();
+
+	auto wrapped_reduce_final_kernel = cuda::kernel::get(device, reduceFinal);
+	auto reduce_final_node = builder.kind<node_kind_t::kernel_launch>()
+		.kernel(wrapped_reduce_kernel)
+		.launch_configuration(final_reduce_launch_config)
+		.arguments(outputVec_d.data(), result_d.data(), outputVec_d.size())
+		// Also need to support add_argument called multiple times
+		.build_within(graph);
+
+	graph.insert.edge(reduce_node, reduce_final_node);
+	graph.insert.edge(memset_result_node, reduce_final_node);
+
+	auto memcpy_result_node = builder.kind<node_kind_t::memory_copy>()
+		.source(result_d)
+		.destination(cuda::span<double>{&result_h,1})
+		.build_within(graph);
+
+	graph.insert.edge(reduce_final_node, memcpy_result_node);
+
+	auto host_function_data = std::make_pair(graph_construction_mode, &result_h);
+
+	auto host_function_node = builder.kind<node_kind_t::host_function_call>()
+		.argument(&host_function_data)
+		.function(myHostNodeCallback)
+		.build_within(graph);
+
+	graph.insert.edge(memcpy_result_node, host_function_node);
+
+	use(device, graph, graph_construction_mode);
+}
+
 void cudaGraphsUsingStreamCapture(
 	const cuda::device_t& device,
 	span<float>  inputVec_h,
@@ -385,7 +477,15 @@ int main(int argc, char **argv)
 		{ inputVec_d.get(), size },
 		{ outputVec_d.get(), maxBlocks },
 		{ result_d.get(), 1 }
-		);
+	);
+
+	cudaGraphsManualWithBuilders(
+		device,
+		{ inputVec_h.get(), size },
+		{ inputVec_d.get(), size },
+		{ outputVec_d.get(), maxBlocks },
+		{ result_d.get(), 1 }
+	);
 
 	cudaGraphsUsingStreamCapture(
 		device,

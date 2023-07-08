@@ -10,9 +10,9 @@
 
 #if CUDA_VERSION >= 10000
 
-#include <cuda/api/graph/node.hpp>
-#include <cuda/api/types.hpp>
-#include <cuda/api/graph/identify.hpp>
+#include "node.hpp"
+#include "identify.hpp"
+#include "../types.hpp"
 
 namespace cuda {
 

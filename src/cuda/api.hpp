@@ -78,5 +78,6 @@
 #endif // CUDA_VERSION >= 10000
 
 #include "api/launch_config_builder.hpp"
+#include "api/graph/node_builder.hpp"
 
 #endif // CUDA_API_WRAPPERS_HPP_

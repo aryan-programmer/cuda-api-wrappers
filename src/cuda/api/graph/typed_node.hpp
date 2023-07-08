@@ -10,18 +10,19 @@
 #if CUDA_VERSION >= 10000
 
 #include "node.hpp"
-#include <cuda/api/detail/for_each_argument.hpp>
-#include <cuda/api/error.hpp>
-#include <cuda/api/device.hpp>
-#include <cuda/api/event.hpp>
-#include <cuda/api/kernel.hpp>
-#include <cuda/api/launch_configuration.hpp>
-#include <cuda/api/memory_pool.hpp>
+#include "../detail/for_each_argument.hpp"
+#include "../error.hpp"
+#include "../device.hpp"
+#include "../event.hpp"
+#include "../kernel.hpp"
+#include "../launch_configuration.hpp"
+#include "../memory_pool.hpp"
+
 #include <vector>
+#include <iostream>
 #include <utility>
 #include <type_traits>
 
-#include <iostream>
 
 namespace cuda {
 
@@ -96,12 +97,14 @@ struct kind_traits<kind_t::child_graph> {
 #if CUDA_VERSION >= 11000
 	static constexpr const auto instance_setter = cuGraphExecChildGraphNodeSetParams;
 #endif
+
+	static raw_parameters_type marshal(const parameters_type& params);
 };
 
 #if CUDA_VERSION >= 11000
 template<>
-struct kind_traits<kind_t::event> {
-	static constexpr const auto name = "event";
+struct kind_traits<kind_t::record_event> {
+	static constexpr const auto name = "record event";
 	using raw_parameters_type = event::handle_t;
 	static constexpr const bool inserter_takes_context = false;
 	static constexpr const bool inserter_takes_params_by_ptr = false;
@@ -111,14 +114,15 @@ struct kind_traits<kind_t::event> {
 	static constexpr const auto getter = cuGraphEventRecordNodeGetEvent;
 	static constexpr const auto instance_setter = cuGraphExecEventRecordNodeSetEvent;
 
-	static raw_parameters_type marshal(parameters_type params)
+	static raw_parameters_type marshal(const parameters_type& params)
 	{
 		return params.handle();
 	}
 };
+
 template<>
-struct kind_traits<kind_t::wait> {
-	static constexpr const auto name = "wait for event";
+struct kind_traits<kind_t::wait_on_event> {
+	static constexpr const auto name = "wait on event";
 	using raw_parameters_type = event::handle_t;
 	static constexpr const bool inserter_takes_context = false;
 	static constexpr const bool inserter_takes_params_by_ptr = false;
@@ -128,7 +132,7 @@ struct kind_traits<kind_t::wait> {
 	static constexpr const auto getter = cuGraphEventWaitNodeGetEvent;
 	static constexpr const auto instance_setter = cuGraphExecEventWaitNodeSetEvent;
 
-	static raw_parameters_type marshal(parameters_type params)
+	static raw_parameters_type marshal(const parameters_type& params)
 	{
 		return params.handle();
 
@@ -151,7 +155,7 @@ struct kind_traits<kind_t::host_function_call> {
 	static constexpr const auto getter = cuGraphHostNodeGetParams;
 	static constexpr const auto instance_setter = cuGraphExecHostNodeSetParams;
 
-	static raw_parameters_type marshal(parameters_type params)
+	static raw_parameters_type marshal(const parameters_type& params)
 	{
 		return { params.function_ptr, params.user_data };
 	}
@@ -168,7 +172,7 @@ struct kind_traits<kind_t::kernel_launch> {
 	static constexpr const bool inserter_takes_context = false;
 	static constexpr const bool inserter_takes_params_by_ptr = true;
 	struct parameters_type {
-		const kernel_t& kernel;
+		kernel_t kernel;
 		launch_configuration_t launch_config;
 		dynarray<void*> marshalled_arguments; // Does _not_ need a nullptr "argument" terminator
 	};
@@ -214,7 +218,7 @@ struct kind_traits<kind_t::memory_allocation> {
 	// static constexpr const auto setter;
 	static constexpr const auto getter = cuGraphMemAllocNodeGetParams;
 
-	static raw_parameters_type marshal(parameters_type params)
+	static raw_parameters_type marshal(const parameters_type& params)
 	{
 		static constexpr const auto no_export_handle_kind = memory::pool::shared_handle_kind_t::no_export;
 		raw_parameters_type raw_params;
@@ -274,14 +278,14 @@ struct kind_traits<kind_t::memory_free> {
 	static constexpr const auto name = "memory free";
 	using raw_parameters_type = CUdeviceptr;
 	static constexpr const bool inserter_takes_context = false;
-	static constexpr const bool inserter_takes_params_by_ptr = true;
+	static constexpr const bool inserter_takes_params_by_ptr = false; // the void* _is_ the parameter
 	using parameters_type = void*;
 	static constexpr const auto inserter = cuGraphAddMemFreeNode; // 1 extra param
 	// no setter
 	// static constexpr const auto setter = ;
 	static constexpr const auto getter = cuGraphMemFreeNodeGetParams;
 
-	static raw_parameters_type marshal(parameters_type params)
+	static raw_parameters_type marshal(const parameters_type& params)
 	{
 		return memory::device::address(params);
 	}
@@ -300,9 +304,9 @@ struct kind_traits<kind_t::memory_barrier> {
 	static constexpr const auto setter = cuGraphBatchMemOpNodeSetParams;
 	static constexpr const auto getter = cuGraphBatchMemOpNodeGetParams;
 
-	static raw_parameters_type marshal(parameters_type params)
+	static raw_parameters_type marshal(const parameters_type& params)
 	{
-		auto context = params.first;
+		auto const & context = params.first;
 		raw_parameters_type raw_params;
 		raw_params.count = 1;
 		raw_params.ctx = context.handle();
@@ -310,7 +314,7 @@ struct kind_traits<kind_t::memory_barrier> {
 		CUstreamBatchMemOpParams memory_barrier_op;
 		memory_barrier_op.operation = CU_STREAM_MEM_OP_BARRIER;
 		memory_barrier_op.memoryBarrier.operation = CU_STREAM_MEM_OP_BARRIER;
-		auto scope = params.second;
+		auto const & scope = params.second;
 		memory_barrier_op.memoryBarrier.flags = static_cast<unsigned>(scope);
 		raw_params.paramArray = &memory_barrier_op;
 		return raw_params;
@@ -324,6 +328,7 @@ struct kind_traits<kind_t::memory_copy> {
 	using raw_parameters_type = CUDA_MEMCPY3D;
 	static constexpr const bool inserter_takes_context = true;
 	static constexpr const bool inserter_takes_params_by_ptr = true;
+	static constexpr const dimensionality_t num_dimensions { 3 };
 	using parameters_type = memory::copy_parameters_t<3>;
 
 	static constexpr const auto inserter = cuGraphAddMemcpyNode; // 2 extra params incl. context
@@ -402,7 +407,7 @@ public: // friendship
 
 protected: // constructors and destructors
 	typed_node_t(template_::handle_t graph_template_handle, handle_type handle, parameters_type parameters) noexcept
-	: node_t(graph_template_handle, handle), params_(parameters) { }
+	: node_t(graph_template_handle, handle), params_(std::move(parameters)) { }
 
 public:  // constructors and destructors
 	typed_node_t(const typed_node_t<Kind>&) = default; // It's a reference type, so copying is not a problem
@@ -421,7 +426,7 @@ protected: // data members
 template <kind_t Kind>
 typed_node_t<Kind> wrap(template_::handle_t graph_handle, handle_t handle, parameters_t<Kind> parameters) noexcept
 {
-	return typed_node_t<Kind>{ graph_handle, handle, parameters };
+	return typed_node_t<Kind>{ graph_handle, handle, std::move(parameters) };
 }
 
 } // namespace node
