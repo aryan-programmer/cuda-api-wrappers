@@ -84,7 +84,7 @@ inline size_t get_log_size<cuda_cpp>(program::handle_t<cuda_cpp> program_handle,
 	auto status = nvrtcGetProgramLogSize(program_handle, &size);
 	throw_if_error<cuda_cpp>(status, "Failed obtaining compilation log size for "
 		+ identify<cuda_cpp>(program_handle, program_name));
-	return size;
+	return (size > 0) ? size - 1 : 0;
 }
 
 #if CUDA_VERSION >= 11010
